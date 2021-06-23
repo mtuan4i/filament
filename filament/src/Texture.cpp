@@ -484,6 +484,11 @@ size_t FTexture::getFormatSize(InternalFormat format) noexcept {
 }
 
 
+void FTexture::getId(FEngine& engine, void* result) {
+    engine.getDriverApi().getTextureId(mHandle, result);
+    engine.flushAndWait();
+}
+
 // this is a hack to be able to create a std::function<> with a non-copyable closure
 template<class F>
 auto make_copyable_function(F&& f) {

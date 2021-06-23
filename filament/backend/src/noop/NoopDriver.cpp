@@ -41,6 +41,10 @@ backend::ShaderModel NoopDriver::getShaderModel() const noexcept {
 // explicit instantiation of the Dispatcher
 template class backend::ConcreteDispatcher<NoopDriver>;
 
+void NoopDriver::getTextureId(Handle<HwTexture> th, void* result) {
+        printf("Get texture id in NoopDriver::getTextureId.\n");
+}
+
 
 void NoopDriver::terminate() {
 }

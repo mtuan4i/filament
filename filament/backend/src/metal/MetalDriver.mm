@@ -243,6 +243,10 @@ void MetalDriver::createSamplerGroupR(Handle<HwSamplerGroup> sbh, uint32_t size)
     mContext->samplerGroups.insert(construct_handle<MetalSamplerGroup>(mHandleMap, sbh, size));
 }
 
+void MetalDriver::getTextureId(Handle<HwTexture> th, void* result) {
+        printf("Get texture id in MetalDriver::getTextureId.\n");
+}
+
 void MetalDriver::createUniformBufferR(Handle<HwUniformBuffer> ubh, uint32_t size,
         BufferUsage usage) {
     construct_handle<MetalUniformBuffer>(mHandleMap, ubh, *mContext, size);

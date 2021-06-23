@@ -58,6 +58,8 @@
 
 #include "generated/resources/gltf_viewer.h"
 
+#include <filamat/MaterialBuilder.h>
+
 using namespace filament;
 using namespace filament::math;
 using namespace filament::viewer;
@@ -77,6 +79,7 @@ struct App {
 
     MaterialProvider* materials;
     MaterialSource materialSource = GENERATE_SHADERS;
+    Material* myMaterial;
 
     gltfio::ResourceLoader* resourceLoader = nullptr;
     bool recomputeAabb = false;
@@ -377,7 +380,34 @@ int main(int argc, char** argv) {
         }
     }
 
-    auto loadAsset = [&app](utils::Path filename) {
+    const int N_BLENDSHAPE = 4;
+    const int W_BLENDSHAPE = 4096, H_BLENDSHAPE = 4096;
+    std::vector<float*> bsArray(N_BLENDSHAPE);
+
+    /** test blendshape data **/
+    float pBs0[] = {
+            0, 0, 0,    1, 0, 0,    0, 0.5, 0
+    };
+    float pBs1[] = {
+            0, 0, 0,    1, 0, 0,     0, 1.5, 0
+    };
+    float pBs2[] = {
+            0, 0, 0,    1, 0, 0,    1, 1, 0
+    };
+    float pBs3[] = {
+            0, 0, 0,     1, 0, 0,     -0.5, 1, 0
+    };
+    bsArray[0] = pBs0;
+    bsArray[1] = pBs1;
+    bsArray[2] = pBs2;
+    bsArray[3] = pBs3;
+
+    float* pData = new float[W_BLENDSHAPE * H_BLENDSHAPE * 3];
+
+    /** test blendshape influences **/
+    float pInfluences[N_BLENDSHAPE] = {1.0, 1.0, 0.0, 1.0};
+
+    auto loadAsset = [&app, &pData, &pInfluences, &W_BLENDSHAPE, &H_BLENDSHAPE, &bsArray, &N_BLENDSHAPE](utils::Path filename) {
         // Peek at the file size to allow pre-allocation.
         long contentSize = static_cast<long>(getFileSize(filename.c_str()));
         if (contentSize <= 0) {
@@ -399,6 +429,46 @@ int main(int argc, char** argv) {
         } else {
             app.asset = app.assetLoader->createAssetFromJson(buffer.data(), buffer.size());
         }
+
+        filament::RenderableManager& rcm = app.engine->getRenderableManager();
+        int stride = 0;
+        for (int i = 0; i < app.asset->getEntityCount(); i++) {
+            int primsCount = rcm.getPrimitiveCount(rcm.getInstance(app.asset->getEntities()[i]));
+            for (int j = 0; j < primsCount; j++) {
+
+                // Fill pData buffer with blendshape data
+                int nVert = 3;          //todo: automatically set number of vertices of primitive j
+                for (int v = 0; v < nVert; v++) {
+                    for (int b = 0; b < bsArray.size(); b++) {
+                        pData[stride + 0] = bsArray[b][3 * v + 0];
+                        pData[stride + 1] = bsArray[b][3 * v + 1];
+                        pData[stride + 2] = bsArray[b][3 * v + 2];
+                        stride += 3;
+                    }
+                }
+
+                // Create blendshape texture for primitive j
+                filament::Texture::PixelBufferDescriptor pbuffer(pData, size_t(W_BLENDSHAPE * H_BLENDSHAPE * 3 * sizeof(float)), filament::Texture::Format::RGB, filament::Texture::Type::FLOAT);
+                filament::Texture *bsTexture = filament::Texture::Builder()
+                        .width(uint32_t(W_BLENDSHAPE))
+                        .height(uint32_t(H_BLENDSHAPE))
+                        .levels(0)
+                        .sampler(filament::Texture::Sampler::SAMPLER_2D)
+                        .format(filament::Texture::InternalFormat::RGB32F)
+                        .build(*app.engine);
+                bsTexture->setImage(*app.engine, 0, std::move(pbuffer));
+
+                // Set material instance parameters
+                MaterialInstance* mi = app.myMaterial->createInstance();
+                mi->setParameter("blendShapeInfluences", pInfluences, N_BLENDSHAPE);           //todo: call it every frame
+                mi->setParameter("blendShapeTex", bsTexture, filament::TextureSampler(TextureSampler::MinFilter::NEAREST, TextureSampler::MagFilter::NEAREST, TextureSampler::WrapMode::CLAMP_TO_EDGE));
+                mi->setParameter("numBlendShape", N_BLENDSHAPE);
+
+                // Assign the material instance to primitive j of entity i
+                rcm.setMaterialInstanceAt(rcm.getInstance(app.asset->getEntities()[i]), j, mi);
+            }
+        }
+
         buffer.clear();
         buffer.shrink_to_fit();
 
@@ -482,6 +552,50 @@ int main(int argc, char** argv) {
                 std::cerr << "Failed to load settings from " << app.settingsFile << std::endl;
             }
         }
+
+        /** Blenshape Material**/
+        filamat::MaterialBuilder::init();
+        filamat::Package pkg = filamat::MaterialBuilder().name("VertexModification")
+                .platform(filamat::MaterialBuilderBase::Platform::DESKTOP)
+                .vertexDomain(filamat::MaterialBuilder::VertexDomain::OBJECT)
+                .doubleSided(true)
+                .parameter(filamat::MaterialBuilder::SamplerType::SAMPLER_2D, filamat::MaterialBuilder::SamplerFormat::FLOAT, "blendShapeTex")
+                .parameter(filamat::MaterialBuilder::UniformType::FLOAT, N_BLENDSHAPE, "blendShapeInfluences")
+                .parameter(filamat::MaterialBuilder::UniformType::INT, "numBlendShape")
+                .materialVertex(R"SHADER(
+void materialVertex(inout MaterialVertexInputs material) {
+    float vi = float(getVertexIndex());
+
+    int nB = materialParams.numBlendShape;
+    float W_BLENDSHAPE = 4096.0;
+    float H_BLENDSHAPE = 4096.0;
+    float offset = vi * float(nB);
+    vec3 basePos = getPosition().xyz;
+    vec3 transformed = basePos;
+
+    for (int i = 0; i < nB; i++) {
+        float iFloat = float(i);
+        float x = mod(offset + iFloat, W_BLENDSHAPE) + 0.0;
+        float y = ((offset + iFloat) / W_BLENDSHAPE) + 0.0;
+        vec2 uv = vec2(x / (W_BLENDSHAPE - 0.0), y / (H_BLENDSHAPE - 0.0));
+        vec3 morphPos = texture(materialParams_blendShapeTex, uv).xyz;
+
+        transformed = transformed + (morphPos - basePos) * materialParams.blendShapeInfluences[i];
+    }
+
+    material.worldPosition = vec4(mulMat4x4Float3(getWorldFromModelMatrix(), transformed).xyz, 1.0);
+}
+                )SHADER")
+                .material(R"SHADER(
+void material(inout MaterialInputs material) {
+    prepareMaterial(material);
+//    material.baseColor.rgb = vec3(1.0, 0.0, 0.0);
+}
+                )SHADER")
+                .build(engine->getJobSystem());
+        app.myMaterial = filament::Material::Builder().package(pkg.getData(), pkg.getSize()).build(*engine);
+        filamat::MaterialBuilder::shutdown();
+        /****/
 
         app.materials = (app.materialSource == GENERATE_SHADERS) ?
                 createMaterialGenerator(engine) : createUbershaderLoader(engine);
@@ -586,7 +700,7 @@ int main(int argc, char** argv) {
         });
     };
 
-    auto cleanup = [&app](Engine* engine, View*, Scene*) {
+    auto cleanup = [&app, &pData](Engine* engine, View*, Scene*) {
         app.automationEngine->terminate();
         app.resourceLoader->asyncCancelLoad();
         app.assetLoader->destroyAsset(app.asset);
@@ -602,6 +716,8 @@ int main(int argc, char** argv) {
         delete app.materials;
         delete app.names;
 
+        delete[] pData;
+
         AssetLoader::destroy(&app.assetLoader);
     };
 
@@ -611,7 +727,7 @@ int main(int argc, char** argv) {
         // Add renderables to the scene as they become ready.
         app.viewer->populateScene(app.asset, !app.actualSize);
 
-        app.viewer->applyAnimation(now);
+//        app.viewer->applyAnimation(now);
     };
 
     auto resize = [&app](Engine* engine, View* view) {

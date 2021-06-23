@@ -215,6 +215,11 @@ void OpenGLDriver::bindSampler(GLuint unit, backend::SamplerParams params) noexc
     mContext.bindSampler(unit, getSampler(params));
 }
 
+void OpenGLDriver::getTextureId(Handle<HwTexture> th, void* result) {
+        GLTexture* t = handle_cast<GLTexture*>(th);
+        *(uint32_t*)result= t->gl.id;
+}
+
 void OpenGLDriver::bindTexture(GLuint unit, GLTexture const* t) noexcept {
     assert_invariant(t != nullptr);
     mContext.bindTexture(unit, t->gl.target, t->gl.id, t->gl.targetIndex);

@@ -492,6 +492,10 @@ DECL_DRIVER_API_N(draw,
         backend::PipelineState, state,
         backend::RenderPrimitiveHandle, rph)
 
+DECL_DRIVER_API_N(getTextureId,
+                  backend::TextureHandle, th,
+                  void*, result)
+
 #pragma clang diagnostic pop
 
 #undef EXPAND
