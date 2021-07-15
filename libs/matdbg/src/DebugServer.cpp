@@ -18,16 +18,17 @@
 
 #include <CivetServer.h>
 
+#include <utils/FixedCapacityVector.h>
 #include <utils/Hash.h>
 #include <utils/Log.h>
 
 #include <spirv_glsl.hpp>
 #include <spirv-tools/libspirv.h>
 
-#include <matdbg/ShaderReplacer.h>
+#include <matdbg/JsonWriter.h>
 #include <matdbg/ShaderExtractor.h>
 #include <matdbg/ShaderInfo.h>
-#include <matdbg/JsonWriter.h>
+#include <matdbg/ShaderReplacer.h>
 
 #include <filaflat/ChunkContainer.h>
 
@@ -35,6 +36,8 @@
 
 #include <sstream>
 #include <string>
+
+using utils::FixedCapacityVector;
 
 // If set to 0, this serves HTML from a resgen resource. Use 1 only during local development, which
 // serves files directly from the source code tree.
@@ -60,13 +63,6 @@ static const StaticString kSuccessHeader =
 static const StaticString kErrorHeader =
         "HTTP/1.1 404 Not Found\r\nContent-Type: %s\r\n"
         "Connection: close\r\n\r\n";
-
-// TODO: nuke this, we won't support it.
-static void mslToGlsl(struct mg_connection *conn, const char* msl) {
-    CString msg("TODO: glsl will go here");
-    mg_printf(conn, kSuccessHeader.c_str(), "application/txt");
-    mg_printf(conn, msg.c_str(), msg.size());
-}
 
 static void spirvToAsm(struct mg_connection *conn, const uint32_t* data, size_t size) {
     auto context = spvContextCreate(SPV_ENV_UNIVERSAL_1_0);
@@ -276,7 +272,7 @@ public:
                 return softError("Only GLSL is supported.");
             }
 
-            std::vector<ShaderInfo> info(getShaderCount(package, ChunkType::MaterialGlsl));
+            FixedCapacityVector<ShaderInfo> info(getShaderCount(package, ChunkType::MaterialGlsl));
             if (!getGlShaderInfo(package, info.data())) {
                 return error(__LINE__);
             }
@@ -307,7 +303,7 @@ public:
             }
 
             filaflat::ShaderBuilder builder;
-            std::vector<ShaderInfo> info(getShaderCount(package, ChunkType::MaterialSpirv));
+            FixedCapacityVector<ShaderInfo> info(getShaderCount(package, ChunkType::MaterialSpirv));
             if (!getVkShaderInfo(package, info.data())) {
                 return error(__LINE__);
             }
@@ -340,7 +336,7 @@ public:
             }
 
             filaflat::ShaderBuilder builder;
-            std::vector<ShaderInfo> info(getShaderCount(package, ChunkType::MaterialMetal));
+            FixedCapacityVector<ShaderInfo> info(getShaderCount(package, ChunkType::MaterialMetal));
             if (!getMetalShaderInfo(package, info.data())) {
                 return error(__LINE__);
             }
@@ -356,11 +352,6 @@ public:
             if (language == msl) {
                 mg_printf(conn, kSuccessHeader.c_str(), "application/txt");
                 mg_write(conn, builder.data(), builder.size() - 1);
-                return true;
-            }
-
-            if (language == glsl) {
-                mslToGlsl(conn, (const char*) builder.data());
                 return true;
             }
 
@@ -586,11 +577,12 @@ bool DebugServer::handleEditCommand(const MaterialKey& key, backend::Backend api
         return error(__LINE__);
     }
 
-    std::vector<ShaderInfo> infos;
+    FixedCapacityVector<ShaderInfo> infos;
     size_t shaderCount;
     switch (api) {
         case backend::Backend::OPENGL: {
             shaderCount = getShaderCount(package, ChunkType::MaterialGlsl);
+            infos.reserve(shaderCount);
             infos.resize(shaderCount);
             if (!getGlShaderInfo(package, infos.data())) {
                 return error(__LINE__);
@@ -599,6 +591,7 @@ bool DebugServer::handleEditCommand(const MaterialKey& key, backend::Backend api
         }
         case backend::Backend::VULKAN: {
             shaderCount = getShaderCount(package, ChunkType::MaterialSpirv);
+            infos.reserve(shaderCount);
             infos.resize(shaderCount);
             if (!getVkShaderInfo(package, infos.data())) {
                 return error(__LINE__);
@@ -607,6 +600,7 @@ bool DebugServer::handleEditCommand(const MaterialKey& key, backend::Backend api
         }
         case backend::Backend::METAL: {
             shaderCount = getShaderCount(package, ChunkType::MaterialMetal);
+            infos.reserve(shaderCount);
             infos.resize(shaderCount);
             if (!getMetalShaderInfo(package, infos.data())) {
                 return error(__LINE__);

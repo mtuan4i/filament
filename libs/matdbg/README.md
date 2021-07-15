@@ -238,7 +238,9 @@ not including the terminating null.
 ## Wish List
 
 - Allow editing of the original GLSL, perhaps by enhancing the `-g` option in matc and adding new chunk types.
-- Port the web side to TypeScript (this will clarify the structure of the pseudo-database).
+- Port the web side to TypeScript
+    - This will clarify the structure of the pseudo-database, which is currently a total hack.
+    - Allows us to use enums instead of strings in several places (e.g. getShaderAPI)
     - Try using https://github.com/basarat/typescript-script because webpack etc is painful.
     - If the above idea is too slow then use https://github.com/evanw/esbuild.
 - Expose the entire `engine.debug` struct in the web UI.

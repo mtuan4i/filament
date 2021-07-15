@@ -60,6 +60,10 @@ function getShaderAPI(selection) {
 
 function rebuildMaterial() {
     let api = 0, index = -1;
+    if (gCurrentLanguage === "spirv") {
+        console.error("SPIR-V editing is not supported.");
+        return;
+    }
     switch (getShaderAPI()) {
         case "opengl": api = 1; index = gCurrentShader.glindex; break;
         case "vulkan": api = 2; index = gCurrentShader.vkindex; break;
@@ -363,15 +367,19 @@ function renderShaderStatus() {
         const glsl = "glsl " + (gCurrentLanguage === "glsl" ? "active" : "");
         const msl = "msl " + (gCurrentLanguage === "msl" ? "active" : "");
         const spirv = "spirv " + (gCurrentLanguage === "spirv" ? "active" : "");
-        if (gCurrentShader.metalindex >= 0) {
-            statusString += ` &nbsp; <a class='status_button ${glsl}'>[GLSL]</a>`;
-            statusString += ` &nbsp; <a class='status_button ${msl}'>[MSL]</a>`;
+        switch (getShaderAPI()) {
+            case "opengl":
+                statusString += ` &nbsp; <a class='status_button ${glsl}'>[GLSL]</a>`;
+                break;
+            case "metal":
+                statusString += ` &nbsp; <a class='status_button ${msl}'>[MSL]</a>`;
+                break;
+            case "vulkan":
+                statusString += ` &nbsp; <a class='status_button ${glsl}'>[GLSL]</a>`;
+                statusString += ` &nbsp; <a class='status_button ${spirv}'>[SPIRV]</a>`;
+                break;
         }
-        if (gCurrentShader.vkindex >= 0) {
-            statusString += ` &nbsp; <a class='status_button ${glsl}'>[GLSL]</a>`;
-            statusString += ` &nbsp; <a class='status_button ${spirv}'>[SPIRV]</a>`;
-        }
-        if (shader.modified) {
+        if (shader.modified && gCurrentLanguage !== "spirv") {
             statusString += " &nbsp; <a class='status_button rebuild'>[rebuild]</a>";
         }
         if (!shader.active) {
@@ -401,7 +409,7 @@ function selectShader(selection) {
             }
             break;
         case "metal":
-            if (gCurrentLanguage != "msl" && gCurrentLanguage != "glsl") {
+            if (gCurrentLanguage != "msl") {
                 gCurrentLanguage = "msl";
             }
             break;
