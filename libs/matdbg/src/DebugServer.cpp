@@ -61,6 +61,7 @@ static const StaticString kErrorHeader =
         "HTTP/1.1 404 Not Found\r\nContent-Type: %s\r\n"
         "Connection: close\r\n\r\n";
 
+// TODO: nuke this, we won't support it.
 static void mslToGlsl(struct mg_connection *conn, const char* msl) {
     CString msg("TODO: glsl will go here");
     mg_printf(conn, kSuccessHeader.c_str(), "application/txt");
@@ -81,9 +82,9 @@ static void spirvToAsm(struct mg_connection *conn, const uint32_t* data, size_t 
 }
 
 static void spirvToGlsl(struct mg_connection *conn, const uint32_t* spirv, size_t size) {
-    CString msg("TODO: glsl will go here");
+    auto glsl = ShaderExtractor::spirvToGLSL(spirv, size / 4);
     mg_printf(conn, kSuccessHeader.c_str(), "application/txt");
-    mg_printf(conn, msg.c_str(), msg.size());
+    mg_printf(conn, glsl.c_str(), glsl.size());
 }
 
 class FileRequestHandler : public CivetHandler {
