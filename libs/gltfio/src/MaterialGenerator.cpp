@@ -293,7 +293,7 @@ std::string shaderFromKey(const MaterialKey& config) {
 }
 
 static Material* createMaterial(Engine* engine, const MaterialKey& config, const UvMap& uvmap,
-        const char* name, bool optimizeShaders) {
+        const char* name, bool optimizeShaders, bool hasBlendShape) {
     std::string shader = shaderFromKey(config);
     processShaderString(&shader, uvmap, config);
     MaterialBuilder builder = MaterialBuilder()
@@ -305,6 +305,47 @@ static Material* createMaterial(Engine* engine, const MaterialKey& config, const
             .material(shader.c_str())
             .doubleSided(config.doubleSided)
             .targetApi(filamat::targetApiFromBackend(engine->getBackend()));
+
+    if (hasBlendShape) {
+        builder
+        .parameter(MaterialBuilder::SamplerType::SAMPLER_2D, MaterialBuilder::SamplerFormat::FLOAT, "blendShapePTex")
+        .parameter(MaterialBuilder::SamplerType::SAMPLER_2D, MaterialBuilder::SamplerFormat::FLOAT, "blendShapeNTex")
+        .parameter(MaterialBuilder::UniformType::INT, "numBlendShape")
+        .parameter(MaterialBuilder::UniformType::FLOAT, MAX_BLEND_SHAPES, "blendShapeInfluences")
+        .parameter(MaterialBuilder::UniformType::INT2, "blendShapeTexDims")
+        .materialVertex(R"SHADER(
+            void materialVertex(inout MaterialVertexInputs material) {
+                float vi = float(getVertexIndex());
+                int nB = materialParams.numBlendShape;
+                float W_BLEND_SHAPE = float(materialParams.blendShapeTexDims.x);
+                float H_BLEND_SHAPE = float(materialParams.blendShapeTexDims.y);
+
+                float offset = vi * float(nB);
+                vec3 basePos = getPosition().xyz;
+                vec3 transformedPos = basePos;
+                vec3 transformedNorm = transpose(getWorldFromModelNormalMatrix()) * material.worldNormal;
+                for (int i = 0; i < nB; i++) {
+                    if (materialParams.blendShapeInfluences[i] == 0.0) continue;
+
+                    float iFloat = float(i);
+                    float x = mod(offset + iFloat, W_BLEND_SHAPE);
+                    float y = ((offset + iFloat) / W_BLEND_SHAPE);
+                    vec2 uv = vec2(x / W_BLEND_SHAPE, y / H_BLEND_SHAPE);
+
+                    vec3 morphPos = texture(materialParams_blendShapePTex, uv).xyz;
+                    transformedPos = transformedPos + morphPos * materialParams.blendShapeInfluences[i];
+
+                    vec3 morphNorm = texture(materialParams_blendShapeNTex, uv).xyz;
+                    transformedNorm = transformedNorm + morphNorm * materialParams.blendShapeInfluences[i];
+                }
+
+//                material.worldPosition = vec4(mulMat4x4Float3(getWorldFromModelMatrix(), transformedPos), 1.0);
+                material.worldPosition = getWorldFromModelMatrix() * vec4(transformedPos, 1.0);
+
+                material.worldNormal = getWorldFromModelNormalMatrix() * transformedNorm;
+            }
+        )SHADER");
+    }
 
     if (!optimizeShaders) {
         builder.optimization(MaterialBuilder::Optimization::NONE);
@@ -491,7 +532,14 @@ MaterialInstance* MaterialGenerator::createMaterialInstance(MaterialKey* config,
         optimizeShaders = false;
 #endif
 
-        Material* mat = createMaterial(mEngine, *config, *uvmap, label, optimizeShaders);
+        bool hasBlendShape = false;
+        std::string sub = "#BlendShape";
+        std::string str = std::string(label);
+        if (str.find(sub, str.length() - sub.length()) != std::string::npos) {
+            hasBlendShape = true;
+        }
+
+        Material* mat = createMaterial(mEngine, *config, *uvmap, label, optimizeShaders, hasBlendShape);
         mCache.emplace(std::make_pair(*config, mat));
         mMaterials.push_back(mat);
         return mat->createInstance(label);

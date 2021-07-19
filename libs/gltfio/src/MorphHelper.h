@@ -73,6 +73,8 @@ private:
     tsl::robin_map<Entity, TableEntry> mMorphTable;
     const FFilamentAsset* mAsset;
     const FFilamentInstance* mInstance;
+
+    std::vector<filament::Texture*> bsTextures;
 };
 
 } // namespace gltfio

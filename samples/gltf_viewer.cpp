@@ -78,6 +78,7 @@ struct App {
     NameComponentManager* names;
 
     MaterialProvider* materials;
+//    MaterialSource materialSource = LOAD_UBERSHADERS;
     MaterialSource materialSource = GENERATE_SHADERS;
     Material* myMaterial;
 
@@ -431,6 +432,7 @@ int main(int argc, char** argv) {
         }
 
         filament::RenderableManager& rcm = app.engine->getRenderableManager();
+        /*
         int stride = 0;
         for (int i = 0; i < app.asset->getEntityCount(); i++) {
             int primsCount = rcm.getPrimitiveCount(rcm.getInstance(app.asset->getEntities()[i]));
@@ -468,6 +470,17 @@ int main(int argc, char** argv) {
                 rcm.setMaterialInstanceAt(rcm.getInstance(app.asset->getEntities()[i]), j, mi);
             }
         }
+        */
+
+//        for (int i = 0; i < app.asset->getEntityCount(); i++) {
+//            int primsCount = rcm.getPrimitiveCount(rcm.getInstance(app.asset->getEntities()[i]));
+//            for (int j = 0; j < primsCount; j++) {
+////                MaterialInstance* mi = app.myMaterial->createInstance();
+////                rcm.setMaterialInstanceAt(rcm.getInstance(app.asset->getEntities()[i]), j, mi);
+//                MaterialInstance* mi = rcm.getMaterialInstanceAt(rcm.getInstance(app.asset->getEntities()[i]), j);
+//                std::cout << "Mat inst " << i << " " << j << " : " << mi->getName() << std::endl;
+//            }
+//        }
 
         buffer.clear();
         buffer.shrink_to_fit();
@@ -554,47 +567,28 @@ int main(int argc, char** argv) {
         }
 
         /** Blenshape Material**/
-        filamat::MaterialBuilder::init();
-        filamat::Package pkg = filamat::MaterialBuilder().name("VertexModification")
-                .platform(filamat::MaterialBuilderBase::Platform::DESKTOP)
-                .vertexDomain(filamat::MaterialBuilder::VertexDomain::OBJECT)
-                .doubleSided(true)
-                .parameter(filamat::MaterialBuilder::SamplerType::SAMPLER_2D, filamat::MaterialBuilder::SamplerFormat::FLOAT, "blendShapeTex")
-                .parameter(filamat::MaterialBuilder::UniformType::FLOAT, N_BLENDSHAPE, "blendShapeInfluences")
-                .parameter(filamat::MaterialBuilder::UniformType::INT, "numBlendShape")
-                .materialVertex(R"SHADER(
-void materialVertex(inout MaterialVertexInputs material) {
-    float vi = float(getVertexIndex());
-
-    int nB = materialParams.numBlendShape;
-    float W_BLENDSHAPE = 4096.0;
-    float H_BLENDSHAPE = 4096.0;
-    float offset = vi * float(nB);
-    vec3 basePos = getPosition().xyz;
-    vec3 transformed = basePos;
-
-    for (int i = 0; i < nB; i++) {
-        float iFloat = float(i);
-        float x = mod(offset + iFloat, W_BLENDSHAPE) + 0.0;
-        float y = ((offset + iFloat) / W_BLENDSHAPE) + 0.0;
-        vec2 uv = vec2(x / (W_BLENDSHAPE - 0.0), y / (H_BLENDSHAPE - 0.0));
-        vec3 morphPos = texture(materialParams_blendShapeTex, uv).xyz;
-
-        transformed = transformed + (morphPos - basePos) * materialParams.blendShapeInfluences[i];
-    }
-
-    material.worldPosition = vec4(mulMat4x4Float3(getWorldFromModelMatrix(), transformed).xyz, 1.0);
-}
-                )SHADER")
-                .material(R"SHADER(
-void material(inout MaterialInputs material) {
-    prepareMaterial(material);
-//    material.baseColor.rgb = vec3(1.0, 0.0, 0.0);
-}
-                )SHADER")
-                .build(engine->getJobSystem());
-        app.myMaterial = filament::Material::Builder().package(pkg.getData(), pkg.getSize()).build(*engine);
-        filamat::MaterialBuilder::shutdown();
+//        filamat::MaterialBuilder::init();
+//        filamat::Package pkg = filamat::MaterialBuilder().name("VertexModification")
+//                .platform(filamat::MaterialBuilderBase::Platform::DESKTOP)
+//                .vertexDomain(filamat::MaterialBuilder::VertexDomain::OBJECT)
+//                .doubleSided(true)
+////                .parameter(filamat::MaterialBuilder::SamplerType::SAMPLER_2D, filamat::MaterialBuilder::SamplerFormat::FLOAT, "blendShapeTex")
+////                .parameter(filamat::MaterialBuilder::UniformType::FLOAT, N_BLENDSHAPE, "blendShapeInfluences")
+////                .parameter(filamat::MaterialBuilder::UniformType::INT, "numBlendShape")
+//                .shading(Shading::LIT)
+//                .materialVertex(R"SHADER(
+//void materialVertex(inout MaterialVertexInputs material) {
+//}
+//                )SHADER")
+//                .material(R"SHADER(
+//void material(inout MaterialInputs material) {
+//    prepareMaterial(material);
+////    material.baseColor.rgb = vec3(0., 1., 1.);
+//}
+//                )SHADER")
+//                .build(engine->getJobSystem());
+//        app.myMaterial = filament::Material::Builder().package(pkg.getData(), pkg.getSize()).build(*engine);
+//        filamat::MaterialBuilder::shutdown();
         /****/
 
         app.materials = (app.materialSource == GENERATE_SHADERS) ?
@@ -721,13 +715,57 @@ void material(inout MaterialInputs material) {
         AssetLoader::destroy(&app.assetLoader);
     };
 
-    auto animate = [&app](Engine* engine, View* view, double now) {
+    float influences[100] = {0};
+    influences[0] = 0.0;
+    influences[17] = 0.0;
+    influences[18] = 0.0;
+    float prev = -1;
+    float weight = 0.0;
+    float sign = 1.f;
+
+    auto animate = [&app, &influences, &prev, &weight, &sign](Engine* engine, View* view, double now) {
         app.resourceLoader->asyncUpdateLoad();
 
         // Add renderables to the scene as they become ready.
         app.viewer->populateScene(app.asset, !app.actualSize);
 
 //        app.viewer->applyAnimation(now);
+
+//        for (int i = 0; i < 40; i++) {
+//            float r = ((double) rand() / (RAND_MAX)) - 1.0;
+            weight += sign * 0.04;
+
+            influences[0] = weight;
+            influences[17] = weight;
+            influences[18] = weight;
+            influences[25] = weight;
+            influences[40 - 13] = weight;
+            influences[40 - 17] = weight;
+            influences[40 - 18] = weight;
+            influences[29] = 0.5 * weight;
+            influences[35] = 0.2 * weight;
+
+        if (weight > 1.f && sign > 0) {
+                sign = -1;
+                weight = 1.f;
+            } else if (weight < 0.f && sign < 0) {
+                sign = 1;
+                weight = 0.f;
+            }
+
+//        }
+
+//        printf("%f \n", double(long(now) % 100) / 100.0);
+        auto& rcm = engine->getRenderableManager();
+        for (int i = 0; i < app.asset->getEntityCount(); i++) {
+            const char* eName = app.asset->getName(app.asset->getEntities()[i]);
+            if (std::string(eName).compare("Base") != 0) continue;
+            int primsCount = rcm.getPrimitiveCount(rcm.getInstance(app.asset->getEntities()[i]));
+            for (int j = 0; j < primsCount; j++) {
+                MaterialInstance* mi = rcm.getMaterialInstanceAt(rcm.getInstance(app.asset->getEntities()[i]), j);
+                mi->setParameter("blendShapeInfluences", influences, MAX_BLEND_SHAPES);
+            }
+        }
     };
 
     auto resize = [&app](Engine* engine, View* view) {

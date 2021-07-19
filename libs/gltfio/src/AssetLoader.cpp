@@ -137,7 +137,7 @@ struct FAssetLoader : public AssetLoader {
     void createLight(const cgltf_light* light, Entity entity);
     void createCamera(const cgltf_camera* camera, Entity entity);
     MaterialInstance* createMaterialInstance(const cgltf_material* inputMat, UvMap* uvmap,
-            bool vertexColor);
+            bool vertexColor, bool hasBlendShape);
     void addTextureBinding(MaterialInstance* materialInstance, const char* parameterName,
             const cgltf_texture* srcTexture, bool srgb);
     bool primitiveHasVertexColor(const cgltf_primitive* inPrim) const;
@@ -442,7 +442,7 @@ void FAssetLoader::createRenderable(const cgltf_node* node, Entity entity, const
         // Create a material instance for this primitive or fetch one from the cache.
         UvMap uvmap {};
         bool hasVertexColor = primitiveHasVertexColor(inputPrim);
-        MaterialInstance* mi = createMaterialInstance(inputPrim->material, &uvmap, hasVertexColor);
+        MaterialInstance* mi = createMaterialInstance(inputPrim->material, &uvmap, hasVertexColor, inputPrim->targets_count > 0);
         if (!mi) {
             mError = true;
             continue;
@@ -456,6 +456,49 @@ void FAssetLoader::createRenderable(const cgltf_node* node, Entity entity, const
             mError = true;
             continue;
         }
+
+//        if (inputPrim->targets_count > 0) {
+//            float* pData = new float[4096 * 4096 * 3];
+//            // fill blendshapes data to the buffer
+//            for (int targetIndex = 0; targetIndex < inputPrim->targets_count; targetIndex++) {
+//                const cgltf_morph_target& morphTarget = inputPrim->targets[targetIndex];
+//                for (cgltf_size aindex = 0; aindex < morphTarget.attributes_count; aindex++) {
+//                    const cgltf_attribute& attribute = morphTarget.attributes[aindex];
+//                    const cgltf_accessor* accessor = attribute.data;
+//                    const cgltf_attribute_type atype = attribute.type;
+//                    if (atype == cgltf_attribute_type_position) {
+//                        if (accessor->buffer_view) {
+//                            auto bufferData = (const uint8_t*) accessor->buffer_view->buffer->data;
+//                            assert_invariant(bufferData);
+//                            const uint8_t* data = computeBindingOffset(accessor) + bufferData;
+//                            const uint32_t size = computeBindingSize(accessor);
+//                        }
+//                    }
+//                }
+//            }
+
+//            filament::Texture::PixelBufferDescriptor pBuffer(pData, size_t(4096 * 4096 * 3 * sizeof(float)), Texture::Format::RGB, Texture::Type::FLOAT, [](void* buffer, size_t size, void* user) {
+//                delete[] buffer;
+//            });
+//            filament::Texture *bsTexture = filament::Texture::Builder()
+//                    .width(uint32_t(4096))
+//                    .height(uint32_t(4096))
+//                    .levels(0)
+//                    .sampler(filament::Texture::Sampler::SAMPLER_2D)
+//                    .format(filament::Texture::InternalFormat::RGB32F)
+//                    .build(*mEngine);
+//            bsTexture->setImage(*mEngine, 0, std::move(pBuffer));
+//
+//            // Set blendshape related parameters here
+//            mi->setParameter("blendShapeTexDims", int2{4096, 4096});
+//            mi->setParameter("numBlendShape", (int)inputPrim->targets_count);
+//            mi->setParameter("blendShapeTex", bsTexture, filament::TextureSampler(TextureSampler::MinFilter::NEAREST, TextureSampler::MagFilter::NEAREST));
+//
+//            //todo: call it every frame
+//            float influences[100] = {0};
+//            influences[0] = 1.0;
+//            mi->setParameter("blendShapeInfluences", influences, MAX_BLEND_SHAPES);
+//        }
 
         // Expand the object-space bounding box.
         aabb.min = min(outputPrim->aabb.min, aabb.min);
@@ -873,7 +916,7 @@ void FAssetLoader::createCamera(const cgltf_camera* camera, Entity entity) {
 }
 
 MaterialInstance* FAssetLoader::createMaterialInstance(const cgltf_material* inputMat,
-        UvMap* uvmap, bool vertexColor) {
+        UvMap* uvmap, bool vertexColor, bool hasBlendShape) {
     intptr_t key = ((intptr_t) inputMat) ^ (vertexColor ? 1 : 0);
     auto iter = mResult->mMatInstanceCache.find(key);
     if (iter != mResult->mMatInstanceCache.end()) {
@@ -986,7 +1029,14 @@ MaterialInstance* FAssetLoader::createMaterialInstance(const cgltf_material* inp
 
     // This not only creates a material instance, it modifies the material key according to our
     // rendering constraints. For example, Filament only supports 2 sets of texture coordinates.
-    MaterialInstance* mi = mMaterials->createMaterialInstance(&matkey, uvmap, inputMat->name);
+    MaterialInstance* mi = nullptr;
+    // Make an accustomed material if the primitive has morph targets
+    if (hasBlendShape) {
+        mi = mMaterials->createMaterialInstance(&matkey, uvmap, (std::string(inputMat->name) + "#BlendShape").c_str());
+    } else {
+        mi = mMaterials->createMaterialInstance(&matkey, uvmap, inputMat->name);
+    }
+
     if (!mi) {
         slog.e << "No material with the specified requirements exists." << io::endl;
         return nullptr;

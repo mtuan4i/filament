@@ -106,6 +106,8 @@ enum MaterialSource {
     LOAD_UBERSHADERS,
 };
 
+constexpr int MAX_BLEND_SHAPES = 100;
+
 /**
  * \class MaterialProvider MaterialProvider.h gltfio/MaterialProvider.h
  * \brief Interface to a provider of glTF materials (has two implementations).
@@ -141,6 +143,11 @@ public:
      */
     virtual filament::MaterialInstance* createMaterialInstance(MaterialKey* config, UvMap* uvmap,
             const char* label = "material") = 0;
+
+//    virtual filament::MaterialInstance* createMaterialInstanceBlendShape(MaterialKey* config, UvMap* uvmap,
+//                                                                         const char* label = "material#BlendShape") {
+//        return createMaterialInstance(config, uvmap, label);
+//    }
 
     /**
      * Gets a weak reference to the array of cached materials.

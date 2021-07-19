@@ -66,6 +66,119 @@ MorphHelper::MorphHelper(FFilamentAsset* asset, FFilamentInstance* inst) : mAsse
             }
         }
     }
+
+
+    auto& engine = *mAsset->mEngine;
+    auto rm = &engine.getRenderableManager();
+    for (auto pair: sourceNodes) {
+        cgltf_node const* node = pair.first;
+        cgltf_mesh const* mesh = node->mesh;
+        if (mesh && mesh->weights_count > 0) {
+            for (cgltf_size pi = 0, count = mesh->primitives_count; pi < count; ++pi) {
+                const int W = 2048;
+                const int H = 2048;
+                float* pData = new float[W * H * 3];
+                float* pNormal = new float[W * H * 3];
+
+                const cgltf_primitive& prim = mesh->primitives[pi];
+                for (int targetIndex = 0; targetIndex < prim.targets_count; targetIndex++) {
+                    const cgltf_morph_target& morphTarget = prim.targets[targetIndex];
+                    for (cgltf_size aindex = 0; aindex < morphTarget.attributes_count; aindex++) {
+                        const cgltf_attribute& attribute = morphTarget.attributes[aindex];
+                        const cgltf_accessor* accessor = attribute.data;
+                        const cgltf_attribute_type atype = attribute.type;
+                        if (atype == cgltf_attribute_type_position) {
+                            if (accessor->buffer_view) {
+                                auto bufferData = (const uint8_t*) accessor->buffer_view->buffer->data;
+                                assert_invariant(bufferData);
+                                const uint8_t* data = computeBindingOffset(accessor) + bufferData;
+                                const uint32_t size = computeBindingSize(accessor);
+
+                                int nVert = size / (3 * 4);
+                                float* dataF = (float*)data;
+                                float* offset;
+                                for (int v = 0; v < nVert; v++) {
+                                    offset = pData + prim.targets_count * v * 3;
+                                    offset[3 * targetIndex + 0] = dataF[3 * v + 0];
+                                    offset[3 * targetIndex + 1] = dataF[3 * v + 1];
+                                    offset[3 * targetIndex + 2] = dataF[3 * v + 2];
+                                }
+                            }
+                            continue;
+                        }
+
+                        if (atype == cgltf_attribute_type_normal) {
+
+                            // TODO: use JobSystem for this, like what we do for non-morph tangents.
+//                            TangentsJob job;
+//                            TangentsJob::Params params = { .in = { &prim, targetIndex } };
+//                            TangentsJob::run(&params);
+//
+//                            if (params.out.results) {
+//                                const size_t size = params.out.vertexCount * sizeof(short4);
+//
+////                                BufferObject* bufferObject = BufferObject::Builder().size(size).build(engine);
+////                                VertexBuffer::BufferDescriptor bd(params.out.results, size, FREE_CALLBACK);
+////                                bufferObject->setBuffer(engine, std::move(bd));
+////                                params.out.results = nullptr;
+//                            }
+                            std::unique_ptr<float3[]> morphDeltas;
+                            morphDeltas.reset(new float3[accessor->count]);
+                            cgltf_accessor_unpack_floats(accessor, &morphDeltas[0].x, accessor->count * 3);
+
+                            float* offset;
+                            for (int v = 0; v < accessor->count; v++) {
+                                offset = pNormal + prim.targets_count * v * 3;
+                                offset[3 * targetIndex + 0] = morphDeltas[v].x;
+                                offset[3 * targetIndex + 1] = morphDeltas[v].y;
+                                offset[3 * targetIndex + 2] = morphDeltas[v].z;
+                            }
+
+                            continue;
+                        }
+                    }
+                }
+
+                // Position blendshapes
+                filament::Texture::PixelBufferDescriptor pBufferP(pData, size_t(W * H * 3 * sizeof(float)), Texture::Format::RGB, Texture::Type::FLOAT, [](void* buffer, size_t size, void* user) {
+                    delete[] (float*)buffer;
+                });
+                filament::Texture *bsTextureP = filament::Texture::Builder()
+                    .width(uint32_t(W))
+                    .height(uint32_t(H))
+                    .levels(0)
+                    .sampler(filament::Texture::Sampler::SAMPLER_2D)
+                    .format(filament::Texture::InternalFormat::RGB32F)
+                    .build(engine);
+                bsTextureP->setImage(engine, 0, std::move(pBufferP));
+
+                // Normal blendshapes
+                filament::Texture::PixelBufferDescriptor pBufferN(pNormal, size_t(W * H * 3 * sizeof(float)), Texture::Format::RGB, Texture::Type::FLOAT, [](void* buffer, size_t size, void* user) {
+                    delete[] (float*)buffer;
+                });
+                filament::Texture *bsTextureN = filament::Texture::Builder()
+                        .width(uint32_t(W))
+                        .height(uint32_t(H))
+                        .levels(0)
+                        .sampler(filament::Texture::Sampler::SAMPLER_2D)
+                        .format(filament::Texture::InternalFormat::RGB32F)
+                        .build(engine);
+                bsTextureN->setImage(engine, 0, std::move(pBufferN));
+
+                MaterialInstance* mi = rm->getMaterialInstanceAt(rm->getInstance(pair.second), pi);
+                mi->setParameter("blendShapeTexDims", int2{W, H});
+                mi->setParameter("numBlendShape", (int)prim.targets_count);
+                mi->setParameter("blendShapePTex", bsTextureP, filament::TextureSampler(TextureSampler::MinFilter::NEAREST, TextureSampler::MagFilter::NEAREST));
+                mi->setParameter("blendShapeNTex", bsTextureN, filament::TextureSampler(TextureSampler::MinFilter::NEAREST, TextureSampler::MagFilter::NEAREST));
+
+                bsTextures.push_back(bsTextureP);
+                bsTextures.push_back(bsTextureN);
+            }
+        }
+
+
+    }
+
 }
 
 MorphHelper::~MorphHelper() {
@@ -76,6 +189,10 @@ MorphHelper::~MorphHelper() {
                 engine->destroy(target.bufferObject);
             }
         }
+    }
+
+    for (int i = 0; i < bsTextures.size(); i++) {
+        mAsset->mEngine->destroy(bsTextures[i]);
     }
 }
 
